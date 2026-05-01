@@ -1,0 +1,133 @@
+import os
+from crewai import Agent, Task, Crew, Process
+from langchain_openai import ChatOpenAI
+
+# ==========================================
+# 0. 配置大模型 (替换为你自己的 API Key 和基础 URL)
+# ==========================================
+os.environ["OPENAI_API_KEY"] = "your-api-key-here"
+# 如果使用其他兼容 OpenAI 接口的模型（如 DeepSeek, 通义千问等），请取消注释并修改下行
+# os.environ["OPENAI_API_BASE"] = "https://api.your-provider.com/v1"
+
+# 初始化基础 LLM
+llm = ChatOpenAI(
+    model="gpt-4o", # 可替换为您想使用的模型
+    temperature=0.7
+)
+
+# ==========================================
+# 1. 定义多智能体 (Agents)
+# ==========================================
+
+# Agent 1: 趋势分析专家
+trend_analyst = Agent(
+    role='海外社媒趋势分析师',
+    goal='深度挖掘 {target_market} 市场关于 {product_category} 的最新社媒热点、受众痛点和流行语',
+    backstory=(
+        "你是一名资深的跨境电商市场研究员，精通北美和东南亚的文化语境。"
+        "你每天都在刷 TikTok、Instagram 和 Reddit，对爆款内容的底层逻辑了如指掌。"
+        "你能精准抓取目标受众的心理需求和正在流行的热梗。"
+    ),
+    verbose=True,
+    allow_delegation=False,
+    llm=llm
+)
+
+# Agent 2: 本地化营销文案大师
+copywriter = Agent(
+    role='本地化金牌文案',
+    goal='结合趋势分析，为产品 {product_name} 撰写符合当地语境、高转化率的社媒营销文案',
+    backstory=(
+        "你是一位极具创造力的营销天才，母语级别了解 {target_market} 的文化。"
+        "你讨厌生硬的机器翻译，你的文字总是充满情绪价值，能够瞬间抓住用户的眼球（Hook），"
+        "并运用极具说服力的呼吁行动（CTA）引导购买。"
+    ),
+    verbose=True,
+    allow_delegation=False,
+    llm=llm
+)
+
+# Agent 3: 品牌合规与风控官
+compliance_officer = Agent(
+    role='品牌合规与质检专家',
+    goal='严格审查营销文案，确保符合品牌调性，无违禁词，无文化冒犯，并优化排版',
+    backstory=(
+        "你极其严谨，是公司的品牌“守门员”。"
+        "你精通各平台的广告法和审核机制，对种族、性别、宗教等敏感话题有着极高的敏锐度。"
+        "任何有损品牌形象或可能导致账号限流的内容都逃不过你的眼睛。"
+    ),
+    verbose=True,
+    allow_delegation=False,
+    llm=llm
+)
+
+# ==========================================
+# 2. 定义任务流水线 (Tasks)
+# ==========================================
+
+task_analyze_trends = Task(
+    description=(
+        "针对 {target_market} 市场，分析 {product_category} 的当前消费者需求和社媒趋势。\n"
+        "请列出：1. 核心痛点（3个）；2. 当前流行的相关社媒话题或标签（3-5个）；3. 目标受众的用户画像。"
+    ),
+    expected_output="一份包含核心痛点、流行标签和受众画像的结构化趋势分析报告。",
+    agent=trend_analyst
+)
+
+task_write_copy = Task(
+    description=(
+        "基于趋势分析报告，为我们的具体产品 '{product_name}' 创作 2 篇不同平台的社交媒体推文。\n"
+        "产品核心卖点：{product_features}。\n"
+        "要求：\n"
+        "1. 一篇适合 TikTok (强调短视频脚本结构，前3秒要有强Hook) \n"
+        "2. 一篇适合 Instagram (强调视觉化语言，生活方式氛围，合理使用 Emoji) \n"
+        "3. 必须使用当地俚语和刚分析出的流行标签。\n"
+        "4. 包含明确的 CTA（如促购、点击链接等）。"
+    ),
+    expected_output="两篇风格迥异但均高度本地化、带有极强转化引导的社媒文案及配套标签。",
+    agent=copywriter
+)
+
+task_compliance_review = Task(
+    description=(
+        "审查文案大师提交的 2 篇推文。\n"
+        "审查标准：\n"
+        "1. 过滤任何可能涉及过度承诺（如“100%治愈”、“绝对”等）的词汇。\n"
+        "2. 检查是否存在对 {target_market} 文化的刻板印象或冒犯。\n"
+        "3. 确保 Emoji 使用不过度且排版清晰。\n"
+        "如果不合规，请直接在原文基础上进行修改和润色；如果合规，请直接输出最终可发布的完美版本。"
+    ),
+    expected_output="经过严格审查、修改完毕，可直接一键复制发布到海外社媒的最终版本文案。",
+    agent=compliance_officer
+)
+
+# ==========================================
+# 3. 组装并运行 Crew
+# ==========================================
+
+# 实例化 Crew 团队，采用顺序执行逻辑
+marketing_crew = Crew(
+    agents=[trend_analyst, copywriter, compliance_officer],
+    tasks=[task_analyze_trends, task_write_copy, task_compliance_review],
+    process=Process.sequential, # 顺序执行：分析 -> 写稿 -> 质检
+    verbose=True
+)
+
+if __name__ == "__main__":
+    print("🚀 启动跨境电商全链路多 Agent 营销系统...\n")
+    
+    # 模拟从 ERP 或前端表单传入的商品数据
+    inputs = {
+        'target_market': '北美 (North America)',
+        'product_category': '助眠设备/降噪耳机',
+        'product_name': 'AuraSleep 隐形降噪睡眠耳机',
+        'product_features': '侧睡不压耳、主动降噪隔绝呼噜声、内置白噪音库、超长续航24小时'
+    }
+
+    # 启动任务
+    result = marketing_crew.kickoff(inputs=inputs)
+
+    print("\n==============================================")
+    print("✅ 最终交付产物：")
+    print("==============================================")
+    print(result)
